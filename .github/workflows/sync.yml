@@ -18,34 +18,32 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          persist-credentials: false  # 重要：避免凭证残留
+          token: ${{ secrets.GITHUB_TOKEN }}  # 明确指定token
 
-      # 关键修复步骤：彻底重置工作区
-      - name: Reset workspace
+      - name: Configure Git
         run: |
           git config --global user.name "zxmlysxl"
           git config --global user.email "zxmlysxl@gmail.com"
-          git reset --hard HEAD
-          git clean -fd
-          git restore --staged . || true
-          git restore . || true
+          git config --global http.https://github.com/.extraheader "AUTHORIZATION: basic $(echo -n "x-access-token:${{ secrets.GITHUB_TOKEN }}" | base64)"
 
-      # 使用原生git命令替代第三方action
       - name: Hard Sync with Upstream
         run: |
-          git remote add upstream https://github.com/MHSanaei/3x-ui.git || true
+          # 添加上游仓库（使用token认证）
+          git remote add upstream "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/MHSanaei/3x-ui.git" || true
+          
+          # 获取更新
           git fetch upstream main
+          
+          # 重置本地分支
           git reset --hard upstream/main
           
-          # 选择性保留文件（如需要保留自己的workflows）
-          # git checkout origin/main -- .github/workflows/ || true
-
-          git push origin main --force
+          # 强制推送（使用token认证）
+          git push "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" main --force
 
       - name: Handle Failure
         if: failure()
         run: |
-          echo "::error::自动同步失败，请手动执行以下命令："
+          echo "::error::自动同步失败，请手动执行："
           echo "git remote add upstream https://github.com/MHSanaei/3x-ui.git"
           echo "git fetch upstream"
           echo "git reset --hard upstream/main"
