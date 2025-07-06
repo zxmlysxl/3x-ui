@@ -1,34 +1,55 @@
 name: Upstream Sync
 
-permissions:
-    contents: write
-    workflows: write
 on:
-    schedule:
-        - cron: "15 19 * * *"
-    workflow_dispatch:
+  schedule:
+    - cron: "15 19 * * *"  # 每天UTC时间19:15运行（北京时间次日3:15）
+  workflow_dispatch:
+
+permissions:
+  contents: write  # 这个权限足够同步代码和workflow文件
 
 jobs:
-    sync_with_upstream:
-        name: Sync with Upstream
-        runs-on: ubuntu-latest
-        if: ${{ github.event.repository.fork }}
+  sync_with_upstream:
+    name: Sync with Upstream
+    runs-on: ubuntu-latest
 
-        steps:
-            - name: Checkout target repo
-              uses: actions/checkout@v4.2.0
+    steps:
+      - name: Check if repository is a fork
+        id: check-fork
+        run: |
+          if [ "${{ github.event.repository.fork }}" != "true" ]; then
+            echo "::warning::This action only works on forked repositories"
+            echo "should-exit=true" >> $GITHUB_OUTPUT
+          else
+            echo "should-exit=false" >> $GITHUB_OUTPUT
+          fi
 
-            - name: Sync Upstream
-              uses: aormsby/Fork-Sync-With-Upstream-action@v3.4.1
-              with:
-                  target_repo_token: ${{ secrets.GITHUB_TOKEN }}
-                  upstream_sync_repo: MHSanaei/3x-ui                 
-                  upstream_sync_branch: main
-                  target_sync_branch: main
-                  test_mode: false
+      - name: Exit if not a fork
+        if: steps.check-fork.outputs.should-exit == 'true'
+        run: exit 0
 
-            - name: Check for Failure
-              if: failure()
-              run: |
-                  echo "[Error] Due to a change in the workflow file of the upstream repository, GitHub has automatically suspended the scheduled automatic update. You need to manually sync your fork."
-                  exit 1
+      - name: Checkout target repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 需要完整历史记录进行同步
+
+      - name: Sync Upstream
+        id: sync
+        uses: aormsby/Fork-Sync-With-Upstream-action@v3.4.1
+        with:
+          target_repo_token: ${{ secrets.GITHUB_TOKEN }}
+          upstream_sync_repo: MHSanaei/3x-ui
+          upstream_sync_branch: main
+          target_sync_branch: main
+          test_mode: false
+          exclude: '.github/workflows/*'  # 可选：如果你不想同步workflow文件
+
+      - name: Handle Sync Failure
+        if: failure() && steps.sync.conclusion == 'failure'
+        run: |
+          echo "::error::自动同步失败，请手动处理冲突或同步"
+          echo "可能原因："
+          echo "1. 上游仓库工作流文件变更"
+          echo "2. 存在需要手动解决的冲突"
+          echo "3. 权限不足"
+          echo "请访问 https://github.com/${{ github.repository }}/compare/main...MHSanaei:3x-ui:main 手动处理"
