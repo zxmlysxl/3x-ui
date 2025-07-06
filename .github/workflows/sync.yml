@@ -2,11 +2,12 @@ name: Upstream Sync
 
 on:
   schedule:
-    - cron: "15 19 * * *"  # 每天UTC时间19:15运行（北京时间次日3:15）
+    - cron: "15 19 * * *"  # 每天UTC时间19:15（北京时间次日3:15）
   workflow_dispatch:
 
 permissions:
-  contents: write  # 这个权限足够同步代码和workflow文件
+  contents: write
+  pull-requests: write
 
 jobs:
   sync_with_upstream:
@@ -31,7 +32,12 @@ jobs:
       - name: Checkout target repo
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # 需要完整历史记录进行同步
+          fetch-depth: 0
+
+      - name: Backup workflow files
+        run: |
+          mkdir -p .github/workflows_backup
+          cp -r .github/workflows/* .github/workflows_backup/ || true
 
       - name: Sync Upstream
         id: sync
@@ -41,15 +47,25 @@ jobs:
           upstream_sync_repo: MHSanaei/3x-ui
           upstream_sync_branch: main
           target_sync_branch: main
+          git_config_pull_rebase: true
           test_mode: false
-          exclude: '.github/workflows/*'  # 可选：如果你不想同步workflow文件
 
-      - name: Handle Sync Failure
-        if: failure() && steps.sync.conclusion == 'failure'
+      - name: Restore workflow files
         run: |
-          echo "::error::自动同步失败，请手动处理冲突或同步"
-          echo "可能原因："
-          echo "1. 上游仓库工作流文件变更"
-          echo "2. 存在需要手动解决的冲突"
-          echo "3. 权限不足"
-          echo "请访问 https://github.com/${{ github.repository }}/compare/main...MHSanaei:3x-ui:main 手动处理"
+          rm -rf .github/workflows
+          mv .github/workflows_backup .github/workflows
+
+      - name: Commit and push changes
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git add .
+          git commit -m "Sync upstream (excluding workflow changes)" || echo "No changes to commit"
+          git push origin main
+
+      - name: Handle Failure
+        if: failure()
+        run: |
+          echo "::error::自动同步失败，请手动处理"
+          echo "请访问 https://github.com/${{ github.repository }}/compare/main...MHSanaei:3x-ui:main 手动同步"
+          echo "或检查仓库Settings > Actions > General中的权限设置"
