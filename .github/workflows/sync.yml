@@ -2,12 +2,11 @@ name: Upstream Sync
 
 on:
   schedule:
-    - cron: "15 19 * * *"  # 每天UTC时间19:15（北京时间次日3:15）
+    - cron: "15 19 * * *"
   workflow_dispatch:
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: write  # 保持原有权限
 
 jobs:
   sync_with_upstream:
@@ -15,32 +14,18 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check if repository is a fork
-        id: check-fork
-        run: |
-          if [ "${{ github.event.repository.fork }}" != "true" ]; then
-            echo "::warning::This action only works on forked repositories"
-            echo "should-exit=true" >> $GITHUB_OUTPUT
-          else
-            echo "should-exit=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Exit if not a fork
-        if: steps.check-fork.outputs.should-exit == 'true'
-        run: exit 0
-
       - name: Checkout target repo
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Backup workflow files
+      # 新增步骤：删除工作流文件避免冲突
+      - name: Remove workflow files temporarily
         run: |
-          mkdir -p .github/workflows_backup
-          cp -r .github/workflows/* .github/workflows_backup/ || true
+          mv .github/workflows/ .github/workflows_backup/ || true
+          mkdir -p .github/workflows
 
       - name: Sync Upstream
-        id: sync
         uses: aormsby/Fork-Sync-With-Upstream-action@v3.4.1
         with:
           target_repo_token: ${{ secrets.GITHUB_TOKEN }}
@@ -48,24 +33,18 @@ jobs:
           upstream_sync_branch: main
           target_sync_branch: main
           git_config_pull_rebase: true
-          test_mode: false
+          force: true  # 新增强制模式
 
+      # 恢复原有工作流
       - name: Restore workflow files
         run: |
           rm -rf .github/workflows
-          mv .github/workflows_backup .github/workflows
+          mv .github/workflows_backup/ .github/workflows/ || true
 
-      - name: Commit and push changes
+      - name: Commit changes
         run: |
-          git config --global user.name "GitHub Actions"
-          git config --global user.email "actions@github.com"
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
           git add .
-          git commit -m "Sync upstream (excluding workflow changes)" || echo "No changes to commit"
-          git push origin main
-
-      - name: Handle Failure
-        if: failure()
-        run: |
-          echo "::error::自动同步失败，请手动处理"
-          echo "请访问 https://github.com/${{ github.repository }}/compare/main...MHSanaei:3x-ui:main 手动同步"
-          echo "或检查仓库Settings > Actions > General中的权限设置"
+          git commit -m "Sync upstream (preserve local workflows)" || exit 0
+          git push
