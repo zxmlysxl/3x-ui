@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write  # 保持原有权限
+  contents: write
 
 jobs:
   sync_with_upstream:
@@ -19,10 +19,17 @@ jobs:
         with:
           fetch-depth: 0
 
-      # 新增步骤：删除工作流文件避免冲突
+      # 重置所有更改，确保工作区干净
+      - name: Clean workspace
+        run: |
+          git reset --hard
+          git clean -fd
+
+      # 临时删除工作流文件避免冲突
       - name: Remove workflow files temporarily
         run: |
-          mv .github/workflows/ .github/workflows_backup/ || true
+          git rm --cached -r .github/workflows/ || true
+          rm -rf .github/workflows/ || true
           mkdir -p .github/workflows
 
       - name: Sync Upstream
@@ -33,18 +40,18 @@ jobs:
           upstream_sync_branch: main
           target_sync_branch: main
           git_config_pull_rebase: true
-          force: true  # 新增强制模式
+          target_branch_push_args: "--force-with-lease"  # 使用合法的强制推送参数
 
-      # 恢复原有工作流
+      # 恢复工作流文件（如果需要保留原工作流）
       - name: Restore workflow files
         run: |
-          rm -rf .github/workflows
-          mv .github/workflows_backup/ .github/workflows/ || true
+          git checkout origin/main -- .github/workflows/ || true
+          git reset .github/workflows/ || true
 
-      - name: Commit changes
+      - name: Final Push
         run: |
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git add .
-          git commit -m "Sync upstream (preserve local workflows)" || exit 0
-          git push
+          git commit -m "Sync upstream (excluding workflow changes)" || echo "No changes to commit"
+          git push origin main
